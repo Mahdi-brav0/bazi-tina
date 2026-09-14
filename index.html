@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>گل‌گیری</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg1:#faf3ec;
+    --bg2:#fbeee1;
+    --text:#2b2621;
+    --muted:#8a8078;
+    --pink:#e8a0ac;
+    --yellow:#f0c975;
+    --bad:#c97a6a;
+  }
+  *{ box-sizing:border-box; }
+  html,body{
+    margin:0; height:100%;
+    background:linear-gradient(160deg, var(--bg1), var(--bg2));
+    color:var(--text);
+    font-family:'Vazirmatn', sans-serif;
+    overflow:hidden;
+    touch-action:none;
+  }
+  #wrap{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    height:100%;
+    padding:0.8rem;
+  }
+  #hud{
+    width:100%;
+    max-width:420px;
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    padding:0.4rem 0.6rem;
+    font-size:0.95rem;
+    font-weight:600;
+  }
+  #hud span{ color:var(--muted); font-weight:400; font-size:0.8rem; }
+  #canvasHolder{
+    position:relative;
+    width:100%;
+    max-width:420px;
+    aspect-ratio: 3/4;
+    border-radius:20px;
+    overflow:hidden;
+    box-shadow:0 12px 30px -10px rgba(43,38,33,0.18);
+    background:#fffdf9;
+  }
+  canvas{ display:block; width:100%; height:100%; }
+
+  .overlay{
+    position:absolute; inset:0;
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    text-align:center;
+    background:rgba(250,243,236,0.94);
+    padding:1.5rem;
+  }
+  .overlay h1{ font-size:1.5rem; margin:0 0 0.4rem; }
+  .overlay p{ color:var(--muted); font-size:0.9rem; margin:0 0 1.4rem; max-width:280px; }
+  .btn{
+    font-family:'Vazirmatn', sans-serif;
+    font-size:1rem;
+    font-weight:600;
+    color:#fff;
+    background:linear-gradient(120deg, var(--pink), var(--yellow));
+    border:none;
+    padding:0.85rem 2.1rem;
+    border-radius:999px;
+    cursor:pointer;
+    box-shadow:0 8px 20px -8px rgba(232,160,172,0.6);
+  }
+  .hidden{ display:none !important; }
+  #hint{
+    margin-top:0.7rem;
+    color:var(--muted);
+    font-size:0.8rem;
+    text-align:center;
+  }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <div id="hud">
+    <div>امتیاز: <span id="scoreVal" style="color:var(--text); font-weight:700;">0</span></div>
+    <div>رکورد: <span id="bestVal">0</span></div>
+  </div>
+  <div id="canvasHolder">
+    <canvas id="game"></canvas>
+    <div id="popupMsg" style="position:absolute; pointer-events:none; font-size:0.85rem; font-weight:600; color:var(--bad); opacity:0; transition:opacity .2s ease, transform .5s ease;"></div>
+    <div class="overlay" id="startScreen">
+      <h1>🌸 گل‌گیری</h1>
+      <p>سبد رو با انگشتت حرکت بده، گل‌ها رو بگیر. خار و برگ نگیر که امتیاز کم می‌شه.</p>
+      <button class="btn" id="startBtn">شروع</button>
+    </div>
+    <div class="overlay hidden" id="endScreen">
+      <h1>تموم شد!</h1>
+      <p id="finalScoreText"></p>
+      <button class="btn" id="retryBtn">دوباره</button>
+      <button class="btn" id="shareBtn" style="margin-top:0.7rem; background:transparent; color:var(--text); border:1px solid rgba(43,38,33,0.15); box-shadow:none;">کپی امتیاز برای گروه</button>
+    </div>
+  </div>
+  <div id="hint">انگشتتو رو صفحه بکش</div>
+</div>
+
+<script>
+(function(){
+  var canvas = document.getElementById('game');
+  var ctx = canvas.getContext('2d');
+  var holder = document.getElementById('canvasHolder');
+  var scoreVal = document.getElementById('scoreVal');
+  var bestVal = document.getElementById('bestVal');
+  var startScreen = document.getElementById('startScreen');
+  var endScreen = document.getElementById('endScreen');
+  var startBtn = document.getElementById('startBtn');
+  var retryBtn = document.getElementById('retryBtn');
+  var shareBtn = document.getElementById('shareBtn');
+  var finalScoreText = document.getElementById('finalScoreText');
+
+  var W, H;
+  function resize(){
+    var rect = holder.getBoundingClientRect();
+    W = canvas.width = rect.width * devicePixelRatio;
+    H = canvas.height = rect.height * devicePixelRatio;
+    ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
+    W = rect.width; H = rect.height;
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  var BEST_KEY = 'flower_catch_best';
+  var best = parseInt(localStorage.getItem(BEST_KEY) || '0', 10);
+  bestVal.textContent = best;
+
+  var basket = { w:70, h:22, x:0, y:0 };
+  var items = [];
+  var score = 0;
+  var speed = 2.2;
+  var spawnTimer = 0;
+  var spawnInterval = 70;
+  var running = false;
+  var rafId = null;
+
+  var GOOD = ['🌸','🌼','🌷','🌺'];
+  var BAD = ['🥀','🍂'];
+
+  var popupEl = document.getElementById('popupMsg');
+  var popupTimeout = null;
+  function showPopup(text, x, y){
+    var rect = holder.getBoundingClientRect();
+    var scaleX = rect.width / W;
+    popupEl.textContent = text;
+    popupEl.style.left = (x * scaleX - 40) + 'px';
+    popupEl.style.top = (y - 10) + 'px';
+    popupEl.style.transform = 'translateY(0)';
+    popupEl.style.opacity = '1';
+    if(popupTimeout) clearTimeout(popupTimeout);
+    requestAnimationFrame(function(){
+      popupEl.style.transform = 'translateY(-20px)';
+    });
+    popupTimeout = setTimeout(function(){
+      popupEl.style.opacity = '0';
+    }, 700);
+  }
+
+  function resetGame(){
+    items = [];
+    score = 0;
+    speed = 2.2;
+    spawnInterval = 70;
+    spawnTimer = 0;
+    scoreVal.textContent = '0';
+    basket.x = W/2 - basket.w/2;
+    basket.y = H - 40;
+  }
+
+  function spawnItem(){
+    var isBad = Math.random() < 0.22;
+    var emoji = isBad ? BAD[Math.floor(Math.random()*BAD.length)] : GOOD[Math.floor(Math.random()*GOOD.length)];
+    items.push({
+      x: Math.random() * (W - 30) + 15,
+      y: -20,
+      r: 16,
+      emoji: emoji,
+      bad: isBad,
+      vy: speed + Math.random()*0.6
+    });
+  }
+
+  function update(){
+    spawnTimer++;
+    if(spawnTimer >= spawnInterval){
+      spawnTimer = 0;
+      spawnItem();
+      if(spawnInterval > 32) spawnInterval -= 0.6;
+      speed += 0.02;
+    }
+
+    for(var i = items.length - 1; i >= 0; i--){
+      var it = items[i];
+      it.y += it.vy;
+
+      var caught = it.y > basket.y - 6 && it.y < basket.y + basket.h &&
+                   it.x > basket.x - 10 && it.x < basket.x + basket.w + 10;
+
+      if(caught){
+        score += it.bad ? -3 : 10;
+        if(score < 0) score = 0;
+        scoreVal.textContent = score;
+        if(it.bad) showPopup('گناه داشت 😢', it.x, it.y);
+        items.splice(i,1);
+        continue;
+      }
+
+      if(it.y > H + 20){
+        items.splice(i,1);
+      }
+    }
+  }
+
+  function draw(){
+    ctx.clearRect(0,0,W,H);
+
+    // ground line
+    ctx.strokeStyle = 'rgba(43,38,33,0.08)';
+    ctx.beginPath();
+    ctx.moveTo(0, H-30);
+    ctx.lineTo(W, H-30);
+    ctx.stroke();
+
+    // basket
+    ctx.font = '38px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🧺', basket.x + basket.w/2, basket.y + 8);
+
+    // items
+    ctx.font = '26px sans-serif';
+    items.forEach(function(it){
+      ctx.fillText(it.emoji, it.x, it.y);
+    });
+  }
+
+  function loop(){
+    if(!running) return;
+    update();
+    draw();
+    rafId = requestAnimationFrame(loop);
+  }
+
+  function endGame(){
+    running = false;
+    if(rafId) cancelAnimationFrame(rafId);
+    if(score > best){
+      best = score;
+      localStorage.setItem(BEST_KEY, String(best));
+    }
+    bestVal.textContent = best;
+    finalScoreText.textContent = 'امتیازت: ' + score + (score >= best && score > 0 ? ' — رکورد جدید 🎉' : '');
+    endScreen.classList.remove('hidden');
+  }
+
+  var GAME_TIME = 30 * 1000;
+  var timeLeft = GAME_TIME;
+  var lastTs = null;
+
+  function timedLoop(ts){
+    if(!running) return;
+    if(lastTs === null) lastTs = ts;
+    var dt = ts - lastTs;
+    lastTs = ts;
+    timeLeft -= dt;
+    update();
+    draw();
+    if(timeLeft <= 0){
+      endGame();
+      return;
+    }
+    rafId = requestAnimationFrame(timedLoop);
+  }
+
+  function startGame(){
+    resize();
+    resetGame();
+    timeLeft = GAME_TIME;
+    lastTs = null;
+    running = true;
+    startScreen.classList.add('hidden');
+    endScreen.classList.add('hidden');
+    rafId = requestAnimationFrame(timedLoop);
+  }
+
+  startBtn.addEventListener('click', startGame);
+  retryBtn.addEventListener('click', startGame);
+  shareBtn.addEventListener('click', function(){
+    var text = 'تو گل‌گیری ' + score + ' امتیاز گرفتم 🌸 تو چند میاری؟';
+    var original = shareBtn.textContent;
+    function done(){
+      shareBtn.textContent = 'کپی شد ✓';
+      setTimeout(function(){ shareBtn.textContent = original; }, 1500);
+    }
+    if(navigator.clipboard && navigator.clipboard.writeText){
+      navigator.clipboard.writeText(text).then(done).catch(function(){
+        shareBtn.textContent = text;
+      });
+    } else {
+      shareBtn.textContent = text;
+    }
+  });
+
+  function moveBasketTo(clientX){
+    var rect = holder.getBoundingClientRect();
+    var x = clientX - rect.left - basket.w/2;
+    if(x < 0) x = 0;
+    if(x > W - basket.w) x = W - basket.w;
+    basket.x = x;
+  }
+
+  holder.addEventListener('mousemove', function(e){
+    if(!running) return;
+    moveBasketTo(e.clientX);
+  });
+  holder.addEventListener('touchmove', function(e){
+    if(!running) return;
+    e.preventDefault();
+    moveBasketTo(e.touches[0].clientX);
+  }, { passive:false });
+})();
+</script>
+</body>
+</html>
